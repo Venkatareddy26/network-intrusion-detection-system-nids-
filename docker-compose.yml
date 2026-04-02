@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  nids-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nids-api
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=production
+      - LOG_LEVEL=INFO
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_WORKERS=4
+      - MODEL_PATH=/app/models/nids_model.pkl
+      - DB_TYPE=postgresql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=nids
+      - DB_USER=nids_user
+      - DB_PASSWORD=${DB_PASSWORD:-changeme}
+    volumes:
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
+      - ./data:/app/data
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - nids-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  nids-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    container_name: nids-dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://nids-api:8000
+    depends_on:
+      - nids-api
+    restart: unless-stopped
+    networks:
+      - nids-network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: nids-postgres
+    environment:
+      - POSTGRES_DB=nids
+      - POSTGRES_USER=nids_user
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - nids-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nids_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: nids-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    restart: unless-stopped
+    networks:
+      - nids-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: nids-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - nids-network
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  nids-network:
+    driver: bridge
