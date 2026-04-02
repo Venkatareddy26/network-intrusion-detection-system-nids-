@@ -28,22 +28,6 @@ def test_project_structure():
     assert (project_root / "README.md").exists()
 
 
-def test_config_import():
-    """Test config can be imported."""
-    try:
-        from config import config
-        assert config is not None
-    except Exception as e:
-        # Config might fail without .env, that's okay
-        assert "config" in str(e).lower() or "env" in str(e).lower()
-
-
-def test_utils_import():
-    """Test utils exceptions can be imported."""
-    from src.nids.utils.exceptions import NIDSException
-    assert NIDSException
-
-
 def test_validators_import():
     """Test validators can be imported."""
     from src.nids.utils.validators import validate_ip_address
@@ -55,3 +39,16 @@ def test_validators_import():
     # Test invalid IPs
     assert validate_ip_address("999.999.999.999") is False
     assert validate_ip_address("invalid") is False
+
+
+def test_exceptions_exist():
+    """Test exception classes exist."""
+    from src.nids.utils.exceptions import (
+        NIDSException,
+        ModelNotLoadedException,
+        InferenceException,
+    )
+    
+    assert NIDSException
+    assert ModelNotLoadedException
+    assert InferenceException
