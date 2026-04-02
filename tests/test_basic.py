@@ -39,9 +39,9 @@ def test_config_import():
 
 
 def test_utils_import():
-    """Test utils can be imported."""
-    from src.nids.utils import exceptions
-    assert hasattr(exceptions, 'NIDSException')
+    """Test utils exceptions can be imported."""
+    from src.nids.utils.exceptions import NIDSException
+    assert NIDSException
 
 
 def test_validators_import():
