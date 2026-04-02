@@ -2,6 +2,14 @@
 
 import pytest
 import numpy as np
+import sys
+from pathlib import Path
+
+# Setup paths
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Create required directories
+Path("logs").mkdir(exist_ok=True)
 
 from src.nids.utils.validators import (
     validate_features,

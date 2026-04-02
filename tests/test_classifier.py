@@ -4,6 +4,15 @@ import pytest
 import numpy as np
 from pathlib import Path
 import tempfile
+import sys
+
+# Setup paths
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Create required directories
+Path("logs").mkdir(exist_ok=True)
+Path("data").mkdir(exist_ok=True)
+Path("models").mkdir(exist_ok=True)
 
 from src.nids.models.classifier import NIDSClassifier
 from src.nids.data.loader import get_label_mapping
