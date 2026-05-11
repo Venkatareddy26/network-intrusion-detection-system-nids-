@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 from typing import List, Optional
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -20,7 +20,8 @@ class SecurityConfig(BaseModel):
     require_api_key: bool = Field(default=False)
     api_keys: List[str] = Field(default=[])
 
-    @validator("secret_key")
+    @field_validator("secret_key")
+    @classmethod
     def validate_secret_key(cls, v):
         if v == "change-me-in-production" and os.getenv("APP_ENV") == "production":
             raise ValueError("SECRET_KEY must be changed in production")
@@ -65,7 +66,8 @@ class LoggingConfig(BaseModel):
     max_bytes: int = Field(default=10485760)
     backup_count: int = Field(default=5)
 
-    @validator("level")
+    @field_validator("level")
+    @classmethod
     def validate_level(cls, v):
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if v.upper() not in valid_levels:
@@ -87,6 +89,11 @@ class DatabaseConfig(BaseModel):
 
 class Config(BaseModel):
     """Main application configuration."""
+    
+    model_config = ConfigDict(
+        env_file=".env",
+        env_nested_delimiter="__"
+    )
 
     app_env: str = Field(default="development")
     app_name: str = Field(default="NIDS")
@@ -104,10 +111,6 @@ class Config(BaseModel):
     data_dir: str = Field(default="data")
     model_dir: str = Field(default="models")
     log_dir: str = Field(default="logs")
-
-    class Config:
-        env_file = ".env"
-        env_nested_delimiter = "__"
 
 
 def load_config() -> Config:

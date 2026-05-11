@@ -1,197 +1,467 @@
+"""
+NIDS Live Alert Dashboard — Premium Streamlit UI
+"""
+
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go
+import plotly.express as px
 import time
-import random
-from datetime import datetime
 import sys
 import os
+from datetime import datetime
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
-from src.nids.pipeline.processor import Pipeline, simulate_flow, Alert, NetworkFlow
+from src.nids.pipeline.processor import Pipeline, simulate_flow, Alert
 from src.nids.models.classifier import NIDSClassifier
 from src.nids.models.explainer import SHAPExplainer
 from src.nids.data.loader import FEATURE_COLUMNS
 
+# ── Page Config ──────────────────────────────────────────────
+st.set_page_config(page_title="NIDS · Threat Detection", page_icon="🛡️", layout="wide", initial_sidebar_state="collapsed")
 
-st.set_page_config(
-    page_title="NIDS Dashboard",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded",
+# ── Premium Dark Theme CSS ───────────────────────────────────
+THEME_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+:root {
+    --bg-primary: #0a0e17;
+    --bg-secondary: #111827;
+    --bg-card: #1a2332;
+    --bg-card-hover: #1f2b3d;
+    --border: #2a3a4e;
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --accent-cyan: #06b6d4;
+    --accent-green: #10b981;
+    --accent-red: #ef4444;
+    --accent-amber: #f59e0b;
+    --accent-purple: #8b5cf6;
+    --glow-cyan: 0 0 20px rgba(6,182,212,0.3);
+    --glow-red: 0 0 20px rgba(239,68,68,0.3);
+}
+
+html, body, [data-testid="stAppViewContainer"], .stApp {
+    background: var(--bg-primary) !important;
+    color: var(--text-primary) !important;
+    font-family: 'Inter', sans-serif !important;
+}
+
+[data-testid="stHeader"] { background: transparent !important; }
+[data-testid="stSidebar"] { background: var(--bg-secondary) !important; border-right: 1px solid var(--border) !important; }
+[data-testid="stToolbar"] { display: none !important; }
+
+/* Metric cards */
+[data-testid="stMetric"] {
+    background: linear-gradient(135deg, var(--bg-card) 0%, #15202e 100%) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 16px !important;
+    padding: 20px 24px !important;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3) !important;
+    transition: transform 0.2s, box-shadow 0.2s !important;
+}
+[data-testid="stMetric"]:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: var(--glow-cyan) !important;
+}
+[data-testid="stMetricLabel"] {
+    color: var(--text-secondary) !important;
+    font-weight: 500 !important;
+    font-size: 0.8rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.08em !important;
+}
+[data-testid="stMetricValue"] {
+    color: var(--text-primary) !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-weight: 700 !important;
+    font-size: 1.8rem !important;
+}
+
+/* Headings */
+h1, h2, h3, h4 { color: var(--text-primary) !important; font-family: 'Inter', sans-serif !important; }
+
+/* Divider */
+hr { border-color: var(--border) !important; opacity: 0.5 !important; }
+
+/* Buttons */
+.stButton > button {
+    background: linear-gradient(135deg, var(--accent-cyan) 0%, #0891b2 100%) !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 12px !important;
+    font-weight: 600 !important;
+    padding: 0.6rem 1.5rem !important;
+    transition: all 0.2s !important;
+    box-shadow: 0 4px 15px rgba(6,182,212,0.3) !important;
+}
+.stButton > button:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: var(--glow-cyan) !important;
+}
+
+/* Dataframe */
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+}
+
+/* Expander */
+.streamlit-expanderHeader {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 10px !important;
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+}
+
+/* Slider */
+.stSlider > div > div { color: var(--text-secondary) !important; }
+
+/* Checkbox */
+.stCheckbox label span { color: var(--text-secondary) !important; }
+
+/* Plotly charts: transparent background handled in code */
+
+/* Alert severity badges */
+.severity-high { color: #ef4444; background: rgba(239,68,68,0.15); padding: 2px 10px; border-radius: 20px; font-weight: 600; font-size: 0.75rem; }
+.severity-medium { color: #f59e0b; background: rgba(245,158,11,0.15); padding: 2px 10px; border-radius: 20px; font-weight: 600; font-size: 0.75rem; }
+.severity-low { color: #10b981; background: rgba(16,185,129,0.15); padding: 2px 10px; border-radius: 20px; font-weight: 600; font-size: 0.75rem; }
+
+/* Glowing header bar */
+.header-bar {
+    background: linear-gradient(90deg, var(--bg-card) 0%, #0f1b2d 50%, var(--bg-card) 100%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px 32px;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+}
+.header-bar::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent-cyan), var(--accent-purple), transparent);
+}
+.header-bar h1 {
+    margin: 0 !important;
+    font-size: 1.6rem !important;
+    font-weight: 800 !important;
+    background: linear-gradient(135deg, #06b6d4, #8b5cf6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.header-bar p {
+    margin: 4px 0 0 0 !important;
+    color: var(--text-secondary) !important;
+    font-size: 0.9rem !important;
+}
+
+/* Status indicator */
+.status-live {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--accent-green); font-weight: 600; font-size: 0.85rem;
+}
+.status-live::before {
+    content: '';
+    width: 8px; height: 8px;
+    background: var(--accent-green);
+    border-radius: 50%;
+    animation: pulse-dot 1.5s infinite;
+}
+@keyframes pulse-dot {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.6); }
+    50% { box-shadow: 0 0 0 6px rgba(16,185,129,0); }
+}
+
+/* Alert card */
+.alert-card {
+    background: linear-gradient(135deg, rgba(239,68,68,0.08) 0%, var(--bg-card) 100%);
+    border: 1px solid rgba(239,68,68,0.25);
+    border-left: 4px solid var(--accent-red);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 10px;
+    transition: all 0.2s;
+}
+.alert-card:hover { border-color: rgba(239,68,68,0.5); }
+.alert-card .alert-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.alert-card .alert-type { font-weight: 700; color: var(--accent-red); font-size: 0.95rem; }
+.alert-card .alert-time { color: var(--text-secondary); font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; }
+.alert-card .alert-ips { color: var(--text-secondary); font-size: 0.85rem; font-family: 'JetBrains Mono', monospace; }
+.alert-card .alert-conf { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+.alert-card .shap-feat { color: var(--accent-cyan); font-size: 0.8rem; font-family: 'JetBrains Mono', monospace; }
+
+/* Section title */
+.section-title {
+    font-size: 1.05rem; font-weight: 700; color: var(--text-primary);
+    margin: 0 0 16px 0; display: flex; align-items: center; gap: 8px;
+}
+</style>
+"""
+st.markdown(THEME_CSS, unsafe_allow_html=True)
+
+# ── Plotly Theme ─────────────────────────────────────────────
+PLOTLY_LAYOUT = dict(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="Inter, sans-serif", color="#94a3b8"),
+    margin=dict(l=20, r=20, t=40, b=20),
+    legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
 )
 
+ATTACK_COLORS = {
+    "Normal": "#10b981",
+    "DoS": "#ef4444",
+    "Port Scan": "#f59e0b",
+    "Brute Force": "#8b5cf6",
+    "Data Exfiltration": "#ec4899",
+}
 
+
+# ── Model Loading ────────────────────────────────────────────
 @st.cache_resource
-def load_model_and_explainer():
-    """Load the trained model and SHAP explainer."""
+def load_model():
     try:
-        classifier = NIDSClassifier()
-        classifier.load("models/nids_model.pkl")
-
-        explainer = SHAPExplainer(classifier.model, FEATURE_COLUMNS)
-
-        return classifier, explainer
+        clf = NIDSClassifier()
+        clf.load("models/nids_model.pkl")
+        exp = SHAPExplainer(clf.model, FEATURE_COLUMNS)
+        return clf, exp
     except Exception as e:
-        st.warning(f"Could not load model: {e}. Using demo mode.")
+        st.error(f"⚠️ Model not found. Run `python train_model.py` first.\n\nError: {e}")
         return None, None
 
 
-def init_pipeline():
-    """Initialize or get the pipeline from session state."""
+# ── Session State Init ───────────────────────────────────────
+def init_state():
     if "pipeline" not in st.session_state:
-        classifier, explainer = load_model_and_explainer()
+        clf, exp = load_model()
+        if clf is None:
+            st.stop()
 
         def on_alert(alert):
             if "alerts" not in st.session_state:
                 st.session_state.alerts = []
             st.session_state.alerts.insert(0, alert)
-            if len(st.session_state.alerts) > 100:
-                st.session_state.alerts = st.session_state.alerts[:100]
+            if len(st.session_state.alerts) > 200:
+                st.session_state.alerts = st.session_state.alerts[:200]
 
-        st.session_state.pipeline = Pipeline(classifier, explainer, on_alert)
+        st.session_state.pipeline = Pipeline(clf, exp, on_alert)
         st.session_state.alerts = []
         st.session_state.start_time = time.time()
-        st.session_state.flow_count = 0
+        st.session_state.latency_history = []
+        st.session_state.flow_timeline = []
 
-    return st.session_state.pipeline
 
-
-def simulate_and_process(pipeline: Pipeline, num_flows: int = 1):
-    """Simulate network flows and process them."""
-    for _ in range(num_flows):
+def process_flows(n: int):
+    pipeline = st.session_state.pipeline
+    for _ in range(n):
         flow = simulate_flow()
         pipeline.process_flow(flow)
-        st.session_state.flow_count += 1
+        stats = pipeline.get_stats()
+        if stats["inference_times"]:
+            st.session_state.latency_history.append(stats["inference_times"][-1])
+            if len(st.session_state.latency_history) > 500:
+                st.session_state.latency_history = st.session_state.latency_history[-500:]
+        st.session_state.flow_timeline.append({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "total": stats["total_flows"],
+            "attacks": stats["attack_flows"],
+        })
+        if len(st.session_state.flow_timeline) > 100:
+            st.session_state.flow_timeline = st.session_state.flow_timeline[-100:]
 
 
+# ── Main App ─────────────────────────────────────────────────
 def main():
-    st.title("🛡️ Network Intrusion Detection System")
-    st.markdown("**Real-time traffic classification & alert dashboard**")
-
-    pipeline = init_pipeline()
-
-    col1, col2, col3, col4 = st.columns(4)
-
+    init_state()
+    pipeline = st.session_state.pipeline
     stats = pipeline.get_stats()
 
-    with col1:
-        st.metric("Total Flows Processed", stats["total_flows"])
-    with col2:
-        st.metric("Normal Traffic", stats["normal_flows"])
-    with col3:
-        st.metric("Attacks Detected", stats["attack_flows"])
-    with col4:
-        avg_latency = stats.get("avg_inference_time_ms", 0)
-        st.metric("Avg Inference Time", f"{avg_latency:.1f}ms")
+    # Header
+    uptime = int(time.time() - st.session_state.start_time)
+    st.markdown(f"""
+    <div class="header-bar">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <h1>🛡️ NIDS — Network Intrusion Detection System</h1>
+                <p>Real-time AI-powered threat detection · XGBoost + SHAP Explainability</p>
+            </div>
+            <div style="text-align:right;">
+                <div class="status-live">LIVE MONITORING</div>
+                <p style="color:#64748b;font-size:0.8rem;margin:4px 0 0 0;font-family:'JetBrains Mono',monospace;">
+                    Uptime: {uptime//3600:02d}:{(uptime%3600)//60:02d}:{uptime%60:02d}
+                </p>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.divider()
+    # ── Metric Cards ─────────────────────────────────────────
+    c1, c2, c3, c4, c5 = st.columns(5)
+    avg_lat = stats.get("avg_inference_time_ms", 0)
+    attack_rate = (stats["attack_flows"] / max(stats["total_flows"], 1)) * 100
 
-    col_chart1, col_chart2 = st.columns(2)
+    c1.metric("Total Flows", f"{stats['total_flows']:,}")
+    c2.metric("Normal", f"{stats['normal_flows']:,}")
+    c3.metric("🚨 Attacks", f"{stats['attack_flows']:,}")
+    c4.metric("Avg Latency", f"{avg_lat:.1f} ms")
+    c5.metric("Attack Rate", f"{attack_rate:.1f}%")
 
-    with col_chart1:
-        st.subheader("Traffic Distribution")
-        if stats["total_flows"] > 0:
-            labels = ["Normal", "Attack"]
-            sizes = [stats["normal_flows"], stats["attack_flows"]]
-            chart_data = pd.DataFrame({"Type": labels, "Count": sizes})
-            st.bar_chart(chart_data.set_index("Type"))
-        else:
-            st.info("No data yet. Start traffic simulation to see results.")
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-    with col_chart2:
-        st.subheader("Attack Type Distribution")
-        if stats["attack_distribution"]:
-            attack_df = pd.DataFrame(
-                list(stats["attack_distribution"].items()),
-                columns=["Attack Type", "Count"],
-            )
-            st.bar_chart(attack_df.set_index("Attack Type"))
+    # ── Charts Row ───────────────────────────────────────────
+    chart1, chart2, chart3 = st.columns([1, 1, 1])
+
+    with chart1:
+        st.markdown('<div class="section-title">📊 Attack Distribution</div>', unsafe_allow_html=True)
+        dist = stats.get("attack_distribution", {})
+        if dist and sum(v for k, v in dist.items() if k != "Normal") > 0:
+            attack_only = {k: v for k, v in dist.items() if k != "Normal"}
+            labels = list(attack_only.keys())
+            values = list(attack_only.values())
+            colors = [ATTACK_COLORS.get(l, "#64748b") for l in labels]
+            fig = go.Figure(go.Pie(
+                labels=labels, values=values,
+                marker=dict(colors=colors, line=dict(color="#1a2332", width=2)),
+                textinfo="label+percent", textfont=dict(size=11, color="#e2e8f0"),
+                hole=0.55,
+            ))
+            fig.update_layout(**PLOTLY_LAYOUT, height=280, showlegend=False)
+            fig.add_annotation(text=f"<b>{sum(values)}</b><br>attacks",
+                             x=0.5, y=0.5, showarrow=False,
+                             font=dict(size=16, color="#ef4444"))
+            st.plotly_chart(fig, use_container_width=True, key="pie")
         else:
             st.info("No attacks detected yet.")
 
-    st.divider()
-
-    col_controls, col_stats = st.columns([1, 2])
-
-    with col_controls:
-        st.subheader("🎛️ Control Panel")
-
-        auto_run = st.checkbox("Auto-simulate traffic", value=True, key="auto_run")
-        flow_rate = st.slider("Flows per second", 1, 100, 10, disabled=not auto_run)
-
-        if st.button("▶️ Process Flows", type="primary"):
-            simulate_and_process(pipeline, 10)
-            st.rerun()
-
-        if st.button("🔄 Reset Statistics"):
-            pipeline.reset_stats()
-            st.session_state.alerts = []
-            st.rerun()
-
-        st.caption(
-            f"Running for {int(time.time() - st.session_state.start_time)} seconds"
-        )
-
-    with col_stats:
-        st.subheader("📊 Live Alert Feed")
-
-        if st.session_state.alerts:
-            alerts_df = pd.DataFrame(
-                [
-                    {
-                        "ID": a.id,
-                        "Timestamp": a.timestamp,
-                        "Source IP": a.src_ip,
-                        "Dest IP": a.dst_ip,
-                        "Attack Type": a.attack_type,
-                        "Confidence": f"{a.confidence:.2%}",
-                        "Severity": a.severity,
-                    }
-                    for a in st.session_state.alerts[:20]
-                ]
-            )
-            st.dataframe(alerts_df, use_container_width=True, hide_index=True)
+    with chart2:
+        st.markdown('<div class="section-title">⚡ Inference Latency (ms)</div>', unsafe_allow_html=True)
+        lat_hist = st.session_state.latency_history
+        if lat_hist:
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                y=lat_hist[-100:], mode="lines",
+                line=dict(color="#06b6d4", width=2),
+                fill="tozeroy", fillcolor="rgba(6,182,212,0.1)",
+            ))
+            fig.add_hline(y=50, line_dash="dash", line_color="#ef4444",
+                         annotation_text="50ms target", annotation_font_color="#ef4444")
+            fig.update_layout(**PLOTLY_LAYOUT, height=280, showlegend=False,
+                            xaxis=dict(showgrid=False, showticklabels=False),
+                            yaxis=dict(showgrid=True, gridcolor="rgba(42,58,78,0.5)"))
+            st.plotly_chart(fig, use_container_width=True, key="lat")
         else:
-            st.info("No alerts yet. Alerts will appear here when attacks are detected.")
+            st.info("Processing flows to show latency data...")
+
+    with chart3:
+        st.markdown('<div class="section-title">📈 Traffic Over Time</div>', unsafe_allow_html=True)
+        timeline = st.session_state.flow_timeline
+        if len(timeline) > 2:
+            tdf = pd.DataFrame(timeline[-50:])
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=tdf["time"], y=tdf["total"], name="Total",
+                               marker_color="rgba(6,182,212,0.6)"))
+            fig.add_trace(go.Bar(x=tdf["time"], y=tdf["attacks"], name="Attacks",
+                               marker_color="rgba(239,68,68,0.8)"))
+            fig.update_layout(**PLOTLY_LAYOUT, height=280, barmode="overlay",
+                            xaxis=dict(showgrid=False, showticklabels=False),
+                            yaxis=dict(showgrid=True, gridcolor="rgba(42,58,78,0.5)"))
+            st.plotly_chart(fig, use_container_width=True, key="timeline")
+        else:
+            st.info("Accumulating traffic data...")
 
     st.divider()
 
-    st.subheader("🔍 Latest Alert Details")
+    # ── Live Alert Feed + Controls ───────────────────────────
+    left, right = st.columns([3, 1])
 
-    if st.session_state.alerts:
-        latest_alert = st.session_state.alerts[0]
+    with right:
+        st.markdown('<div class="section-title">🎛️ Control Panel</div>', unsafe_allow_html=True)
+        auto_run = st.checkbox("Auto-simulate traffic", value=True, key="auto_run")
+        flow_rate = st.slider("Flows per batch", 1, 50, 10, disabled=not auto_run)
 
-        col_det1, col_det2 = st.columns(2)
+        col_b1, col_b2 = st.columns(2)
+        with col_b1:
+            if st.button("▶️ Process", type="primary", use_container_width=True):
+                process_flows(20)
+                st.rerun()
+        with col_b2:
+            if st.button("🔄 Reset", use_container_width=True):
+                pipeline.reset_stats()
+                st.session_state.alerts = []
+                st.session_state.latency_history = []
+                st.session_state.flow_timeline = []
+                st.rerun()
 
-        with col_det1:
-            st.markdown(f"**Attack Type:** {latest_alert.attack_type}")
-            st.markdown(f"**Source IP:** {latest_alert.src_ip}")
-            st.markdown(f"**Destination IP:** {latest_alert.dst_ip}")
-            st.markdown(f"**Confidence:** {latest_alert.confidence:.2%}")
+        # Performance summary
+        st.markdown("---")
+        st.markdown('<div class="section-title">📋 Performance</div>', unsafe_allow_html=True)
+        lat_hist = st.session_state.latency_history
+        if lat_hist:
+            sorted_l = sorted(lat_hist)
+            n = len(sorted_l)
+            st.markdown(f"""
+            <div style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:#94a3b8;line-height:2;">
+                P50: <b style="color:#10b981">{sorted_l[int(n*0.5)]:.1f}ms</b><br>
+                P95: <b style="color:#f59e0b">{sorted_l[min(int(n*0.95), n-1)]:.1f}ms</b><br>
+                P99: <b style="color:#ef4444">{sorted_l[min(int(n*0.99), n-1)]:.1f}ms</b><br>
+                Max: <b style="color:#ef4444">{max(lat_hist):.1f}ms</b>
+            </div>
+            """, unsafe_allow_html=True)
 
-        with col_det2:
-            st.markdown(f"**Severity:** {latest_alert.severity.upper()}")
-            st.markdown(f"**Timestamp:** {latest_alert.timestamp}")
+    with left:
+        st.markdown('<div class="section-title">🚨 Live Alert Feed</div>', unsafe_allow_html=True)
+        alerts = st.session_state.alerts
 
-        st.markdown("**Top 3 Triggering Features:**")
+        if alerts:
+            for a in alerts[:12]:
+                sev_class = "severity-high" if a.severity == "high" else "severity-medium"
+                conf_color = "#ef4444" if a.confidence > 0.8 else "#f59e0b"
+                top_feats = ""
+                for f in a.top_3_features[:3]:
+                    fname = f.get("feature", "?")
+                    fval = f.get("value", 0)
+                    fimp = f.get("abs_importance", 0)
+                    top_feats += f'<span class="shap-feat">▸ {fname}: {fval:.1f} (imp: {fimp:.3f})</span><br>'
 
-        for i, feat in enumerate(latest_alert.top_3_features, 1):
-            with st.expander(f"#{i}: {feat.get('feature', 'Unknown')}", expanded=True):
-                st.markdown(f"- **Value:** {feat.get('value', 'N/A'):.4f}")
-                st.markdown(
-                    f"- **SHAP Importance:** {feat.get('importance', 'N/A'):.4f}"
-                )
-                st.markdown(
-                    f"- **Absolute Importance:** {feat.get('abs_importance', 'N/A'):.4f}"
-                )
-    else:
-        st.info("No alert details to display. Process some flows to see alerts.")
+                ts_short = a.timestamp.split("T")[-1][:8] if "T" in a.timestamp else a.timestamp[:8]
 
+                st.markdown(f"""
+                <div class="alert-card">
+                    <div class="alert-header">
+                        <span class="alert-type">⚠ {a.attack_type}</span>
+                        <span class="{sev_class}">{a.severity.upper()}</span>
+                    </div>
+                    <div class="alert-ips">{a.src_ip} → {a.dst_ip}</div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
+                        <div>{top_feats}</div>
+                        <div style="text-align:right;">
+                            <div class="alert-conf" style="color:{conf_color}">{a.confidence:.1%}</div>
+                            <div class="alert-time">{ts_short}</div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="text-align:center;padding:60px 20px;color:#64748b;">
+                <div style="font-size:3rem;margin-bottom:12px;">🔍</div>
+                <div style="font-size:1rem;">No threats detected yet</div>
+                <div style="font-size:0.85rem;margin-top:4px;">Start traffic simulation to monitor for intrusions</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ── Auto-refresh ─────────────────────────────────────────
     if auto_run:
-        simulate_and_process(pipeline, flow_rate // 10 + 1)
-        time.sleep(0.1)
+        process_flows(flow_rate)
+        time.sleep(0.15)
         st.rerun()
 
 
