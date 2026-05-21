@@ -1,27 +1,27 @@
 """Production-grade FastAPI application with security and monitoring."""
 
-from fastapi import FastAPI, HTTPException, status, Depends
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
-from typing import List, Dict, Any, Optional
-import numpy as np
 import time
 from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import Response
+from prometheus_client import CONTENT_TYPE_LATEST
+from pydantic import BaseModel, Field, field_validator
 
 from config import config, ensure_directories
+from src.nids.api.middleware import setup_middleware
+from src.nids.data.loader import FEATURE_COLUMNS
 from src.nids.models.classifier import NIDSClassifier
 from src.nids.models.explainer import SHAPExplainer
-from src.nids.pipeline.processor import Pipeline, NetworkFlow
-from src.nids.data.loader import FEATURE_COLUMNS
-from src.nids.utils.logging import setup_logging, get_logger
+from src.nids.pipeline.processor import Pipeline
 from src.nids.utils.exceptions import (
     ModelNotLoadedException,
-    InferenceException,
-    InferenceTimeoutException,
 )
-from src.nids.utils.metrics import metrics_collector
+from src.nids.utils.logging import get_logger, setup_logging
+from src.nids.utils.metrics import metrics_collector, render_prometheus_metrics
 from src.nids.utils.validators import validate_features, validate_ip_address
-from src.nids.api.middleware import setup_middleware
 
 # Setup logging
 setup_logging(
@@ -33,6 +33,45 @@ setup_logging(
 )
 
 logger = get_logger(__name__)
+
+
+def initialize_runtime_state(target_app: FastAPI) -> None:
+    """Initialize classifier, explainer, and pipeline once.
+
+    FastAPI lifespan handles this in normal server runs. Tests and embedded
+    callers can hit routes without entering lifespan, so endpoints also call
+    this helper lazily.
+    """
+    if getattr(target_app.state, "runtime_initialized", False):
+        return
+
+    target_app.state.runtime_initialized = True
+    target_app.state.classifier = None
+    target_app.state.explainer = None
+    target_app.state.pipeline = None
+
+    ensure_directories()
+
+    try:
+        target_app.state.classifier = NIDSClassifier()
+        target_app.state.classifier.load(config.model.model_path)
+
+        target_app.state.explainer = SHAPExplainer(
+            target_app.state.classifier.model, FEATURE_COLUMNS
+        )
+
+        def on_alert(alert):
+            metrics_collector.record_attack(alert.attack_type)
+
+        target_app.state.pipeline = Pipeline(
+            target_app.state.classifier, target_app.state.explainer, on_alert
+        )
+
+        logger.info("Models loaded successfully")
+        logger.info(f"Model version: {config.model.model_version}")
+
+    except Exception as e:
+        logger.error(f"Failed to load models: {e}", exc_info=True)
 
 
 # Pydantic Models
@@ -78,7 +117,8 @@ class PredictionRequest(BaseModel):
     src_ip: str = Field(default="0.0.0.0", description="Source IP address")
     dst_ip: str = Field(default="0.0.0.0", description="Destination IP address")
 
-    @validator("src_ip", "dst_ip")
+    @field_validator("src_ip", "dst_ip")
+    @classmethod
     def validate_ip(cls, v):
         if not validate_ip_address(v):
             raise ValueError(f"Invalid IP address: {v}")
@@ -133,31 +173,7 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown."""
     # Startup
     logger.info("Starting NIDS API server")
-    ensure_directories()
-
-    try:
-        app.state.classifier = NIDSClassifier()
-        app.state.classifier.load(config.model.model_path)
-
-        app.state.explainer = SHAPExplainer(
-            app.state.classifier.model, FEATURE_COLUMNS
-        )
-
-        def on_alert(alert):
-            metrics_collector.record_attack(alert.attack_type)
-
-        app.state.pipeline = Pipeline(
-            app.state.classifier, app.state.explainer, on_alert
-        )
-
-        logger.info("Models loaded successfully")
-        logger.info(f"Model version: {config.model.model_version}")
-
-    except Exception as e:
-        logger.error(f"Failed to load models: {e}", exc_info=True)
-        app.state.classifier = None
-        app.state.explainer = None
-        app.state.pipeline = None
+    initialize_runtime_state(app)
 
     yield
 
@@ -180,6 +196,7 @@ setup_middleware(app)
 # Dependency for model availability
 def get_classifier():
     """Dependency to check if classifier is loaded."""
+    initialize_runtime_state(app)
     if app.state.classifier is None:
         raise ModelNotLoadedException("Model not loaded")
     return app.state.classifier
@@ -187,6 +204,7 @@ def get_classifier():
 
 def get_pipeline():
     """Dependency to check if pipeline is available."""
+    initialize_runtime_state(app)
     if app.state.pipeline is None:
         raise ModelNotLoadedException("Pipeline not initialized")
     return app.state.pipeline
@@ -207,6 +225,7 @@ async def root():
 @app.get("/health", response_model=HealthResponse, tags=["General"])
 async def health():
     """Health check endpoint."""
+    initialize_runtime_state(app)
     stats = metrics_collector.performance.get_stats()
 
     return HealthResponse(
@@ -225,14 +244,14 @@ async def predict(
     classifier: NIDSClassifier = Depends(get_classifier),
 ):
     """Predict attack type for a single network flow.
-    
+
     Args:
         request: Prediction request with flow features
         classifier: Classifier dependency
-        
+
     Returns:
         Prediction response with attack type and confidence
-        
+
     Raises:
         HTTPException: If inference fails
     """
@@ -329,16 +348,25 @@ async def get_metrics():
     )
 
 
+@app.get("/prometheus", tags=["Monitoring"])
+async def get_prometheus_metrics():
+    """Expose process metrics in Prometheus text format."""
+    return Response(
+        content=render_prometheus_metrics(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+
+
 @app.get("/alerts", response_model=List[AlertResponse], tags=["Alerts"])
 async def get_alerts(
     limit: int = 10, pipeline: Pipeline = Depends(get_pipeline)
 ):
     """Get recent alerts.
-    
+
     Args:
         limit: Maximum number of alerts to return
         pipeline: Pipeline dependency
-        
+
     Returns:
         List of recent alerts
     """

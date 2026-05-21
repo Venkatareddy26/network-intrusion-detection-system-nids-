@@ -1,9 +1,10 @@
 """API endpoint tests."""
 
-import pytest
 import os
 import sys
 from pathlib import Path
+
+import pytest
 
 # Setup paths
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -14,16 +15,12 @@ Path("data").mkdir(exist_ok=True)
 Path("models").mkdir(exist_ok=True)
 
 from fastapi.testclient import TestClient
-import numpy as np
 
 # Set environment before importing app
 os.environ["APP_ENV"] = "test"
 os.environ["LOG_LEVEL"] = "ERROR"
 
 from src.nids.api.main_v2 import app
-from src.nids.models.classifier import NIDSClassifier
-from src.nids.models.explainer import SHAPExplainer
-from src.nids.data.loader import FEATURE_COLUMNS
 
 
 @pytest.fixture
@@ -121,6 +118,14 @@ def test_metrics_endpoint(client):
     data = response.json()
     assert "performance" in data
     assert "attack_distribution" in data
+
+
+def test_prometheus_endpoint(client):
+    """Test Prometheus scrape endpoint."""
+    response = client.get("/prometheus")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert b"nids_requests" in response.content
 
 
 def test_stats_endpoint(client):

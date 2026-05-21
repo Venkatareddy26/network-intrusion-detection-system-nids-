@@ -1,13 +1,12 @@
-import numpy as np
-import pandas as pd
-import time
-import queue
-import threading
-from datetime import datetime
-from typing import Dict, List, Any, Optional, Callable
-from dataclasses import dataclass, asdict
 import json
-import os
+import threading
+import time
+from collections import deque
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional
+
+import numpy as np
 
 
 @dataclass
@@ -118,36 +117,32 @@ class AlertQueue:
     """Thread-safe queue for alerts."""
 
     def __init__(self, maxsize: int = 1000):
-        self.queue = queue.Queue(maxsize=maxsize)
+        self.maxsize = maxsize
+        self.queue = deque(maxlen=maxsize)
         self._lock = threading.Lock()
 
     def put(self, alert: Alert, timeout: float = None):
-        try:
-            self.queue.put(alert, timeout=timeout)
-        except queue.Full:
-            try:
-                self.queue.get_nowait()
-                self.queue.put(alert, timeout=timeout)
-            except queue.Empty:
-                pass
+        with self._lock:
+            self.queue.append(alert)
 
     def get(self, timeout: float = None) -> Optional[Alert]:
-        try:
-            return self.queue.get(timeout=timeout)
-        except queue.Empty:
-            return None
+        deadline = None if timeout is None else time.time() + timeout
+        while True:
+            with self._lock:
+                if self.queue:
+                    return self.queue.popleft()
+
+            if timeout is None or (deadline is not None and time.time() >= deadline):
+                return None
+            time.sleep(0.01)
 
     def get_all(self) -> List[Alert]:
-        alerts = []
-        while not self.queue.empty():
-            try:
-                alerts.append(self.queue.get_nowait())
-            except queue.Empty:
-                break
-        return alerts
+        with self._lock:
+            return list(reversed(self.queue))
 
     def size(self) -> int:
-        return self.queue.qsize()
+        with self._lock:
+            return len(self.queue)
 
 
 class Pipeline:
@@ -179,7 +174,12 @@ class Pipeline:
 
         alert = None
         if prediction["prediction"] != "Normal":
-            explanation = self.explainer.explain_prediction(features, top_k=3)
+            class_index = getattr(self.classifier, "label_mapping", {}).get(
+                prediction["prediction"]
+            )
+            explanation = self.explainer.explain_prediction(
+                features, top_k=3, class_index=class_index
+            )
 
             severity = "high" if prediction["confidence"] > 0.8 else "medium"
 
@@ -206,6 +206,8 @@ class Pipeline:
             self._stats["attack_flows"] += 1
 
         self._stats["inference_times"].append(inference_time)
+        if len(self._stats["inference_times"]) > 10000:
+            self._stats["inference_times"] = self._stats["inference_times"][-10000:]
 
         attack_type = prediction["prediction"]
         self._stats["attack_distribution"][attack_type] = (
@@ -217,16 +219,24 @@ class Pipeline:
     def get_stats(self) -> Dict[str, Any]:
         """Get pipeline statistics."""
         avg_inference_time = 0
-        if self._stats["inference_times"]:
-            avg_inference_time = sum(self._stats["inference_times"]) / len(
-                self._stats["inference_times"]
-            )
+        latest_inference_time = 0
+        p95_inference_time = 0
+        inference_times = list(self._stats["inference_times"])
+        if inference_times:
+            avg_inference_time = sum(inference_times) / len(inference_times)
+            latest_inference_time = inference_times[-1]
+            sorted_times = sorted(inference_times)
+            p95_index = min(int(len(sorted_times) * 0.95), len(sorted_times) - 1)
+            p95_inference_time = sorted_times[p95_index]
 
         return {
             "total_flows": self._stats["total_flows"],
             "normal_flows": self._stats["normal_flows"],
             "attack_flows": self._stats["attack_flows"],
             "avg_inference_time_ms": avg_inference_time,
+            "latest_inference_time_ms": latest_inference_time,
+            "p95_inference_time_ms": p95_inference_time,
+            "inference_times": inference_times,
             "attack_distribution": self._stats["attack_distribution"],
             "pending_alerts": self.alert_queue.size(),
         }

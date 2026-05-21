@@ -1,9 +1,10 @@
 """Validator tests."""
 
-import pytest
-import numpy as np
 import sys
 from pathlib import Path
+
+import numpy as np
+import pytest
 
 # Setup paths
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -11,18 +12,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Create required directories
 Path("logs").mkdir(exist_ok=True)
 
+from src.nids.utils.exceptions import InvalidFeatureException
 from src.nids.utils.validators import (
-    validate_features,
-    validate_ip_address,
     sanitize_input,
     validate_confidence_threshold,
+    validate_features,
+    validate_ip_address,
 )
-from src.nids.utils.exceptions import InvalidFeatureException
 
 
 def test_validate_features_valid():
     """Test feature validation with valid data."""
-    features = np.random.randn(1, 30)
+    features = np.random.rand(1, 30) * 100
     validate_features(features)  # Should not raise
 
 
@@ -36,7 +37,7 @@ def test_validate_features_wrong_shape():
 
 def test_validate_features_nan():
     """Test feature validation with NaN values."""
-    features = np.random.randn(1, 30)
+    features = np.random.rand(1, 30) * 100
     features[0, 0] = np.nan
 
     with pytest.raises(InvalidFeatureException):
@@ -45,7 +46,7 @@ def test_validate_features_nan():
 
 def test_validate_features_inf():
     """Test feature validation with Inf values."""
-    features = np.random.randn(1, 30)
+    features = np.random.rand(1, 30) * 100
     features[0, 0] = np.inf
 
     with pytest.raises(InvalidFeatureException):
@@ -54,7 +55,7 @@ def test_validate_features_inf():
 
 def test_validate_features_negative():
     """Test feature validation with negative values."""
-    features = np.random.randn(1, 30)
+    features = np.random.rand(1, 30) * 100
     features[0, 0] = -1000.0  # flow_duration should be positive
 
     with pytest.raises(InvalidFeatureException):

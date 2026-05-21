@@ -1,10 +1,11 @@
 """Performance metrics and monitoring utilities."""
 
-import time
-from typing import Dict, Any, List
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 import threading
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Dict, List
+
+from prometheus_client import CollectorRegistry, Gauge, generate_latest
 
 
 @dataclass
@@ -23,7 +24,7 @@ class PerformanceMetrics:
 
     def record_inference(self, duration_ms: float, success: bool = True):
         """Record an inference operation.
-        
+
         Args:
             duration_ms: Inference duration in milliseconds
             success: Whether the inference was successful
@@ -47,7 +48,7 @@ class PerformanceMetrics:
 
     def get_stats(self) -> Dict[str, Any]:
         """Get current statistics.
-        
+
         Returns:
             Dictionary of statistics
         """
@@ -107,7 +108,7 @@ class MetricsCollector:
 
     def record_attack(self, attack_type: str):
         """Record an attack detection.
-        
+
         Args:
             attack_type: Type of attack detected
         """
@@ -116,7 +117,7 @@ class MetricsCollector:
 
     def get_attack_distribution(self) -> Dict[str, int]:
         """Get attack type distribution.
-        
+
         Returns:
             Dictionary of attack counts
         """
@@ -131,3 +132,63 @@ class MetricsCollector:
 
 # Global metrics instance
 metrics_collector = MetricsCollector()
+
+
+def render_prometheus_metrics() -> bytes:
+    """Render the current in-memory metrics in Prometheus text format."""
+    registry = CollectorRegistry()
+    stats = metrics_collector.performance.get_stats()
+
+    scalar_metrics = {
+        "nids_requests": (
+            "Total inference requests handled by this process.",
+            stats["total_requests"],
+        ),
+        "nids_successful_requests": (
+            "Successful inference requests handled by this process.",
+            stats["successful_requests"],
+        ),
+        "nids_failed_requests": (
+            "Failed inference requests handled by this process.",
+            stats["failed_requests"],
+        ),
+        "nids_success_rate": (
+            "Successful inference request ratio for this process.",
+            stats["success_rate"],
+        ),
+        "nids_avg_inference_time_ms": (
+            "Average inference latency in milliseconds.",
+            stats["avg_inference_time_ms"],
+        ),
+        "nids_p50_inference_time_ms": (
+            "Median inference latency in milliseconds.",
+            stats["p50_inference_time_ms"],
+        ),
+        "nids_p95_inference_time_ms": (
+            "95th percentile inference latency in milliseconds.",
+            stats["p95_inference_time_ms"],
+        ),
+        "nids_p99_inference_time_ms": (
+            "99th percentile inference latency in milliseconds.",
+            stats["p99_inference_time_ms"],
+        ),
+        "nids_uptime_seconds": (
+            "Seconds since the in-memory metrics collector was initialized.",
+            stats["uptime_seconds"],
+        ),
+    }
+
+    for name, (description, value) in scalar_metrics.items():
+        gauge = Gauge(name, description, registry=registry)
+        gauge.set(float(value))
+
+    attack_gauge = Gauge(
+        "nids_attacks_detected",
+        "Detected attacks by normalized attack type.",
+        ["attack_type"],
+        registry=registry,
+    )
+    for attack_type, count in metrics_collector.get_attack_distribution().items():
+        attack_gauge.labels(attack_type=attack_type).set(float(count))
+
+    return generate_latest(registry)

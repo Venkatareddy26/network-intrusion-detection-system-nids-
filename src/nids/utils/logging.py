@@ -2,11 +2,11 @@
 
 import logging
 import logging.handlers
-import json
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
+
 from pythonjsonlogger import jsonlogger
 
 
@@ -30,14 +30,14 @@ def setup_logging(
     backup_count: int = 5,
 ) -> logging.Logger:
     """Setup centralized logging configuration.
-    
+
     Args:
         level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         log_format: Format type ('json' or 'text')
         log_file: Path to log file
         max_bytes: Maximum log file size before rotation
         backup_count: Number of backup files to keep
-        
+
     Returns:
         Configured logger instance
     """
@@ -80,10 +80,10 @@ def setup_logging(
 
 def get_logger(name: str) -> logging.Logger:
     """Get a logger instance for a specific module.
-    
+
     Args:
         name: Logger name (typically __name__)
-        
+
     Returns:
         Logger instance
     """

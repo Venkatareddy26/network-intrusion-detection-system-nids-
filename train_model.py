@@ -9,23 +9,30 @@ Usage:
     python train_model.py --data data/CICIDS2017.csv  # Train on real CICIDS2017
 """
 
-import sys
-import os
 import argparse
+import os
+import sys
 import time
+
 import numpy as np
 import pandas as pd
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.nids.models.classifier import NIDSClassifier
-from src.nids.data.loader import engineer_features, map_labels, get_label_mapping, FEATURE_COLUMNS
 from src.nids.data.generate_synthetic import generate_dataset
+from src.nids.data.loader import FEATURE_COLUMNS, engineer_features, get_label_mapping, map_labels
+from src.nids.models.classifier import NIDSClassifier
 
 
 def train_on_dataframe(df: pd.DataFrame, output_path: str = "models/nids_model.pkl"):
     """Train the NIDS model on a DataFrame with Label column."""
+    df = df.copy()
+    df.columns = df.columns.str.strip()
+
     print("\n" + "=" * 60)
     print("  NIDS MODEL TRAINING PIPELINE")
     print("=" * 60)
@@ -40,8 +47,10 @@ def train_on_dataframe(df: pd.DataFrame, output_path: str = "models/nids_model.p
 
     # Map labels
     print("\n[2/4] Mapping labels...")
+    if "Label" not in df.columns:
+        raise ValueError("Training data must include a Label column")
     y_raw = df["Label"].values
-    y = np.array([label_mapping.get(map_labels(str(l)), 0) for l in y_raw])
+    y = np.array([label_mapping.get(map_labels(str(label_val)), 0) for label_val in y_raw])
 
     unique, counts = np.unique(y, return_counts=True)
     reverse_mapping = {v: k for k, v in label_mapping.items()}
@@ -54,7 +63,7 @@ def train_on_dataframe(df: pd.DataFrame, output_path: str = "models/nids_model.p
     print("\n[3/4] Training XGBoost with SMOTE...")
     classifier = NIDSClassifier(label_mapping)
     start_time = time.time()
-    results = classifier.train(X.values, y, test_size=0.2, use_smote=True)
+    results = classifier.train(X.values.astype(np.float32), y, test_size=0.2, use_smote=True)
     train_time = time.time() - start_time
 
     # Save
@@ -97,7 +106,7 @@ def train_synthetic(output_path: str = "models/nids_model.pkl"):
     # Save synthetic data for reference
     os.makedirs("data", exist_ok=True)
     df.to_csv("data/nids_synthetic.csv", index=False)
-    print(f"  Synthetic data saved to data/nids_synthetic.csv")
+    print("  Synthetic data saved to data/nids_synthetic.csv")
 
     return train_on_dataframe(df, output_path)
 

@@ -21,7 +21,7 @@ def test_imports():
 def test_project_structure():
     """Test project structure exists."""
     project_root = Path(__file__).parent.parent
-    
+
     assert (project_root / "src").exists()
     assert (project_root / "src" / "nids").exists()
     assert (project_root / "requirements.txt").exists()
@@ -31,11 +31,11 @@ def test_project_structure():
 def test_validators_import():
     """Test validators can be imported."""
     from src.nids.utils.validators import validate_ip_address
-    
+
     # Test valid IPs
     assert validate_ip_address("192.168.1.1") is True
     assert validate_ip_address("10.0.0.1") is True
-    
+
     # Test invalid IPs
     assert validate_ip_address("999.999.999.999") is False
     assert validate_ip_address("invalid") is False
@@ -44,11 +44,11 @@ def test_validators_import():
 def test_exceptions_exist():
     """Test exception classes exist."""
     from src.nids.utils.exceptions import (
-        NIDSException,
-        ModelNotLoadedException,
         InferenceException,
+        ModelNotLoadedException,
+        NIDSException,
     )
-    
+
     assert NIDSException
     assert ModelNotLoadedException
     assert InferenceException

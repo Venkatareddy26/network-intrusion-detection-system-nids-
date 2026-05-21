@@ -1,8 +1,9 @@
 """Generate synthetic network flow data for training and testing."""
 
+from typing import Dict
+
 import numpy as np
 import pandas as pd
-from typing import Dict
 
 
 def generate_dataset(
@@ -14,7 +15,7 @@ def generate_dataset(
     seed: int = 42,
 ) -> pd.DataFrame:
     """Generate synthetic network flow dataset.
-    
+
     Args:
         n_normal: Number of normal traffic samples
         n_dos: Number of DoS attack samples
@@ -22,39 +23,39 @@ def generate_dataset(
         n_bruteforce: Number of brute force samples
         n_exfil: Number of data exfiltration samples
         seed: Random seed for reproducibility
-        
+
     Returns:
         DataFrame with network flow features and labels
     """
     np.random.seed(seed)
-    
+
     samples = []
-    
+
     # Generate Normal traffic
     for _ in range(n_normal):
         samples.append(_generate_normal_flow())
-    
+
     # Generate DoS attacks
     for _ in range(n_dos):
         samples.append(_generate_dos_flow())
-    
+
     # Generate Port Scans
     for _ in range(n_portscan):
         samples.append(_generate_portscan_flow())
-    
+
     # Generate Brute Force attacks
     for _ in range(n_bruteforce):
         samples.append(_generate_bruteforce_flow())
-    
+
     # Generate Data Exfiltration
     for _ in range(n_exfil):
         samples.append(_generate_exfil_flow())
-    
+
     df = pd.DataFrame(samples)
-    
+
     # Shuffle
     df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
-    
+
     return df
 
 
@@ -63,7 +64,7 @@ def _generate_normal_flow() -> Dict:
     flow_duration = np.random.exponential(5000)
     fwd_packets = np.random.poisson(20)
     bwd_packets = np.random.poisson(15)
-    
+
     return {
         "flow_duration": flow_duration,
         "total_fwd_packets": fwd_packets,
@@ -104,7 +105,7 @@ def _generate_dos_flow() -> Dict:
     flow_duration = np.random.exponential(1000)
     fwd_packets = np.random.randint(100, 10000)
     bwd_packets = np.random.randint(0, 10)
-    
+
     return {
         "flow_duration": flow_duration,
         "total_fwd_packets": fwd_packets,
@@ -145,7 +146,7 @@ def _generate_portscan_flow() -> Dict:
     flow_duration = np.random.exponential(100)
     fwd_packets = np.random.randint(1, 10)
     bwd_packets = np.random.randint(0, 5)
-    
+
     return {
         "flow_duration": flow_duration,
         "total_fwd_packets": fwd_packets,
@@ -186,7 +187,7 @@ def _generate_bruteforce_flow() -> Dict:
     flow_duration = np.random.exponential(3000)
     fwd_packets = np.random.randint(20, 200)
     bwd_packets = np.random.randint(10, 100)
-    
+
     return {
         "flow_duration": flow_duration,
         "total_fwd_packets": fwd_packets,
@@ -227,7 +228,7 @@ def _generate_exfil_flow() -> Dict:
     flow_duration = np.random.exponential(10000)
     fwd_packets = np.random.randint(50, 500)
     bwd_packets = np.random.randint(10, 100)
-    
+
     return {
         "flow_duration": flow_duration,
         "total_fwd_packets": fwd_packets,

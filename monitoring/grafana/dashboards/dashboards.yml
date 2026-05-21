@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: NIDS
+    orgId: 1
+    folder: NIDS
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

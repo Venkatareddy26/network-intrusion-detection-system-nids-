@@ -3,8 +3,9 @@
 import os
 from pathlib import Path
 from typing import List, Optional
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+
 from dotenv import load_dotenv
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Load environment variables
 load_dotenv()
@@ -40,6 +41,8 @@ class APIConfig(BaseModel):
 
 class ModelConfig(BaseModel):
     """Model configuration."""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     model_path: str = Field(default="models/nids_model.pkl")
     model_version: str = Field(default="1.0.0")
@@ -89,10 +92,11 @@ class DatabaseConfig(BaseModel):
 
 class Config(BaseModel):
     """Main application configuration."""
-    
+
     model_config = ConfigDict(
         env_file=".env",
-        env_nested_delimiter="__"
+        env_nested_delimiter="__",
+        protected_namespaces=(),
     )
 
     app_env: str = Field(default="development")

@@ -51,6 +51,7 @@ logs/
 
 # Data
 data/*.csv
+data/**/*.csv
 data/*.db
 data/*.sqlite
 *.pkl

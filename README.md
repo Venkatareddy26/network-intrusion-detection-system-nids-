@@ -29,7 +29,8 @@ python -m uvicorn src.nids.api.main_v2:app --reload  # Start API
 streamlit run src/nids/dashboard/app.py  # Start dashboard
 ```
 
-**Live Demo**: Coming soon at [demo.nids.example.com](https://demo.nids.example.com)
+**Local Demo**: Run the API, dashboard, and streaming demo commands above against the
+included trained model and synthetic dataset.
 
 ### 💡 Why NIDS?
 
@@ -108,6 +109,42 @@ streamlit run src/nids/dashboard/app.py
 # - Dashboard: http://localhost:8501
 ```
 
+### Real-Time Streaming Demo
+
+```bash
+# Replay synthetic flows through the live inference pipeline
+python -m src.nids.streaming.demo --data data/nids_synthetic.csv --fps 25 --max-flows 1000
+
+# Tail a CSV file and classify newly appended rows
+python -m src.nids.streaming.demo --data data/live_flows.csv --mode tail --fps 10
+
+# Save all events and a replayable attack-only sequence
+python -m src.nids.streaming.demo --data data/nids_synthetic.csv --log-file logs/demo.jsonl --save-replay logs/replay-attacks.jsonl
+
+# Replay a saved attack sequence
+python -m src.nids.streaming.demo --replay logs/replay-attacks.jsonl --fps 5
+```
+
+### Stress Test and Performance Report
+
+```bash
+# Run the stress smoke test on the trained model and synthetic subset
+pytest tests/stress/test_full_dataset.py -v
+
+# Use StressTestRunner from Python for full CICIDS2017 validation
+python - <<'PY'
+from src.nids.models.classifier import NIDSClassifier
+from tests.stress.test_full_dataset import StressTestRunner
+
+clf = NIDSClassifier()
+clf.load("models/nids_model.pkl")
+runner = StressTestRunner(clf, "data/CICIDS2017.csv", batch_size=10000)
+report = runner.run_full_test()
+runner.generate_report(report, output_format="markdown")
+print(report.to_json())
+PY
+```
+
 ### Running with Docker
 
 ```bash
@@ -182,6 +219,12 @@ curl -X POST http://localhost:8000/predict \
 
 ```bash
 curl http://localhost:8000/metrics
+```
+
+### Prometheus Scrape
+
+```bash
+curl http://localhost:8000/prometheus
 ```
 
 ### Get Recent Alerts
@@ -276,6 +319,24 @@ pytest tests/test_api.py -v
 # Run fast tests only
 pytest tests/ -v -m "not slow"
 ```
+
+## Current Completion Status
+
+Complete locally:
+- XGBoost training pipeline with SMOTE support
+- FastAPI prediction, health, metrics, alerts, validation, and middleware
+- Streamlit dashboard with live simulation and SHAP alert explanations
+- Real-time CSV streaming simulator and file-tail mode
+- Streaming demo CLI with configurable FPS, session logs, and replay files
+- Stress-test infrastructure, full-dataset runner, FPR/latency/throughput metrics
+- JSON, Markdown, and HTML performance reports
+- Prometheus scrape endpoint and provisioned Grafana overview dashboard
+- Docker Compose model/data mounts and dependency-free container healthchecks
+
+Final production validation checklist:
+- Retrain/evaluate on the latest approved CICIDS2017 export before shipping
+- Run Docker Compose integration validation on the target host
+- Record the CECR/customer demo video from a running dashboard
 
 ## 📦 Project Structure
 
@@ -381,20 +442,23 @@ DB_NAME=nids
 
 ### Prometheus Metrics
 
-- `nids_requests_total` - Total API requests
-- `nids_inference_time_ms` - Inference latency
-- `nids_errors_total` - Error count
-- `nids_attacks_detected` - Attacks by type
+- `nids_requests` - Total inference requests
+- `nids_successful_requests` - Successful inference requests
+- `nids_failed_requests` - Failed inference requests
+- `nids_success_rate` - Request success ratio
+- `nids_avg_inference_time_ms` - Average inference latency
+- `nids_p95_inference_time_ms` - 95th percentile inference latency
+- `nids_attacks_detected` - Attacks by normalized attack type
 
 ### Grafana Dashboards
 
 Access at `http://localhost:3000` (default: admin/admin)
 
 Pre-configured dashboards:
-- System performance
+- NIDS overview
+- Inference latency
+- Request health
 - Attack distribution
-- API metrics
-- Error rates
 
 ### Logs
 
@@ -529,10 +593,12 @@ For issues and questions:
 - [x] CI/CD pipeline
 - [x] Comprehensive testing
 - [x] Security hardening
+- [x] CSV/file-tail streaming simulator
+- [x] Stress runner and performance reporting
 
 ### Phase 2: Advanced Features 🚧 (In Progress)
 - [ ] LSTM layer for sequential attack detection (APT/slow-burn)
-- [ ] Real-time Kafka streaming integration
+- [ ] Kafka streaming integration
 - [ ] Threat intelligence feeds integration
 - [ ] Multi-tenancy support
 - [ ] Advanced anomaly detection

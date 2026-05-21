@@ -3,15 +3,15 @@
 import time
 import uuid
 from typing import Callable
-from fastapi import Request, Response, HTTPException, status
+
+from fastapi import HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 
 from config import config
+from src.nids.utils.exceptions import NIDSException
 from src.nids.utils.logging import get_logger
-from src.nids.utils.exceptions import NIDSException, RateLimitException
-from src.nids.utils.metrics import metrics_collector
 
 logger = get_logger(__name__)
 
@@ -176,7 +176,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={"error": e.message, "error_code": e.error_code},
             )
-        except HTTPException as e:
+        except HTTPException:
             raise
         except Exception as e:
             logger.error(
@@ -197,7 +197,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
 
 def setup_middleware(app):
     """Setup all middleware for the FastAPI app.
-    
+
     Args:
         app: FastAPI application instance
     """

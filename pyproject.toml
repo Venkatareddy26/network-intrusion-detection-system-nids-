@@ -1,0 +1,20 @@
+[tool.ruff]
+# Enable standard rules
+select = ["E", "F", "W", "I"]
+# E402 is ignored because some scripts/tests dynamically set env variables or initialize models/folders before importing modules.
+ignore = ["E402", "E501"]
+
+exclude = [
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "venv",
+    "__pycache__",
+]
+
+line-length = 100
+
+[tool.black]
+line-length = 100
+target-version = ['py310']

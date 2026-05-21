@@ -1,10 +1,11 @@
 """Classifier tests."""
 
-import pytest
-import numpy as np
-from pathlib import Path
-import tempfile
 import sys
+import tempfile
+from pathlib import Path
+
+import numpy as np
+import pytest
 
 # Setup paths
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -15,8 +16,7 @@ Path("data").mkdir(exist_ok=True)
 Path("models").mkdir(exist_ok=True)
 
 from src.nids.models.classifier import NIDSClassifier
-from src.nids.data.loader import get_label_mapping
-from src.nids.utils.exceptions import ModelNotLoadedException, InferenceException
+from src.nids.utils.exceptions import InferenceException, ModelNotLoadedException
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def sample_data():
     n_samples = 1000
     n_features = 30
 
-    X = np.random.randn(n_samples, n_features)
+    X = np.random.rand(n_samples, n_features) * 100
     y = np.random.randint(0, 5, n_samples)
 
     return X, y

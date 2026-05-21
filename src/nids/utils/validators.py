@@ -1,17 +1,19 @@
 """Input validation utilities."""
 
+from typing import Any, Dict
+
 import numpy as np
-from typing import Dict, Any, List
-from src.nids.utils.exceptions import InvalidFeatureException
+
 from src.nids.data.loader import FEATURE_COLUMNS
+from src.nids.utils.exceptions import InvalidFeatureException
 
 
 def validate_features(features: np.ndarray) -> None:
     """Validate feature array.
-    
+
     Args:
         features: Feature array to validate
-        
+
     Raises:
         InvalidFeatureException: If features are invalid
     """
@@ -47,10 +49,10 @@ def validate_features(features: np.ndarray) -> None:
 
 def validate_ip_address(ip: str) -> bool:
     """Validate IP address format.
-    
+
     Args:
         ip: IP address string
-        
+
     Returns:
         True if valid, False otherwise
     """
@@ -66,10 +68,10 @@ def validate_ip_address(ip: str) -> bool:
 
 def sanitize_input(data: Dict[str, Any]) -> Dict[str, Any]:
     """Sanitize input data to prevent injection attacks.
-    
+
     Args:
         data: Input dictionary
-        
+
     Returns:
         Sanitized dictionary
     """
@@ -85,10 +87,10 @@ def sanitize_input(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def validate_confidence_threshold(threshold: float) -> None:
     """Validate confidence threshold.
-    
+
     Args:
         threshold: Confidence threshold value
-        
+
     Raises:
         InvalidFeatureException: If threshold is invalid
     """

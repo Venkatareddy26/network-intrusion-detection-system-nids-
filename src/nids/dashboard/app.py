@@ -2,22 +2,21 @@
 NIDS Live Alert Dashboard — Premium Streamlit UI
 """
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-import time
-import sys
 import os
+import sys
+import time
 from datetime import datetime
+
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
-from src.nids.pipeline.processor import Pipeline, simulate_flow, Alert
+from src.nids.data.loader import FEATURE_COLUMNS
 from src.nids.models.classifier import NIDSClassifier
 from src.nids.models.explainer import SHAPExplainer
-from src.nids.data.loader import FEATURE_COLUMNS
+from src.nids.pipeline.processor import Pipeline, simulate_flow
 
 # ── Page Config ──────────────────────────────────────────────
 st.set_page_config(page_title="NIDS · Threat Detection", page_icon="🛡️", layout="wide", initial_sidebar_state="collapsed")
@@ -326,7 +325,7 @@ def main():
             attack_only = {k: v for k, v in dist.items() if k != "Normal"}
             labels = list(attack_only.keys())
             values = list(attack_only.values())
-            colors = [ATTACK_COLORS.get(l, "#64748b") for l in labels]
+            colors = [ATTACK_COLORS.get(lbl, "#64748b") for lbl in labels]
             fig = go.Figure(go.Pie(
                 labels=labels, values=values,
                 marker=dict(colors=colors, line=dict(color="#1a2332", width=2)),

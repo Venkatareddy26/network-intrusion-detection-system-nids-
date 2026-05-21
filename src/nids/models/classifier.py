@@ -1,22 +1,23 @@
+import warnings
+from pathlib import Path
+from typing import Any, Dict, Tuple
+
+import joblib
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, f1_score, confusion_matrix
 from imblearn.over_sampling import SMOTE
-import joblib
-import os
-from typing import Tuple, Dict, Any
-import warnings
-from pathlib import Path
+from sklearn.metrics import classification_report, f1_score
+from sklearn.model_selection import train_test_split
+from sklearn.utils.class_weight import compute_sample_weight
 
 warnings.filterwarnings("ignore")
 
 from src.nids.data.loader import FEATURE_COLUMNS, get_label_mapping
 from src.nids.utils.exceptions import (
+    InferenceException,
     ModelLoadException,
     ModelNotLoadedException,
-    InferenceException,
 )
 from src.nids.utils.logging import get_logger
 from src.nids.utils.validators import validate_features
@@ -51,16 +52,16 @@ class NIDSClassifier:
         use_smote: bool = True,
     ) -> Dict[str, Any]:
         """Train the XGBoost classifier with SMOTE for class imbalance.
-        
+
         Args:
             X: Feature matrix
             y: Target labels
             test_size: Test set proportion
             use_smote: Whether to apply SMOTE
-            
+
         Returns:
             Dictionary with training results
-            
+
         Raises:
             InferenceException: If training fails
         """
@@ -79,7 +80,25 @@ class NIDSClassifier:
             if use_smote:
                 logger.info("Applying SMOTE for class imbalance...")
                 try:
-                    smote = SMOTE(random_state=42, k_neighbors=5)
+                    classes, counts = np.unique(y_train, return_counts=True)
+                    min_count = int(counts.min())
+                    target_per_minority_class = min(10000, int(counts.max()))
+                    sampling_strategy = {
+                        int(cls): target_per_minority_class
+                        for cls, count in zip(classes, counts)
+                        if count < target_per_minority_class and count >= 2
+                    }
+                    k_neighbors = max(1, min(5, min_count - 1))
+
+                    if sampling_strategy:
+                        smote = SMOTE(
+                            random_state=42,
+                            k_neighbors=k_neighbors,
+                            sampling_strategy=sampling_strategy,
+                        )
+                    else:
+                        smote = SMOTE(random_state=42, k_neighbors=k_neighbors)
+
                     X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)
                     logger.info(f"After SMOTE: {len(X_train_resampled)} samples")
                 except Exception as e:
@@ -91,22 +110,29 @@ class NIDSClassifier:
             self.scale_pos_weight = self.calculate_class_weights(y_train_resampled)
 
             logger.info("Training XGBoost model...")
-            self.model = xgb.XGBClassifier(
-                n_estimators=200,
-                max_depth=8,
-                learning_rate=0.1,
-                subsample=0.8,
-                colsample_bytree=0.8,
-                scale_pos_weight=self.scale_pos_weight,
-                random_state=42,
-                use_label_encoder=False,
-                eval_metric="mlogloss",
-                n_jobs=-1,
+            xgb_params = {
+                "n_estimators": 200,
+                "max_depth": 8,
+                "learning_rate": 0.1,
+                "subsample": 0.8,
+                "colsample_bytree": 0.8,
+                "random_state": 42,
+                "use_label_encoder": False,
+                "eval_metric": "mlogloss",
+                "n_jobs": -1,
+            }
+            if len(np.unique(y_train_resampled)) <= 2:
+                xgb_params["scale_pos_weight"] = self.scale_pos_weight
+
+            self.model = xgb.XGBClassifier(**xgb_params)
+            sample_weight = compute_sample_weight(
+                class_weight="balanced", y=y_train_resampled
             )
 
             self.model.fit(
                 X_train_resampled,
                 y_train_resampled,
+                sample_weight=sample_weight,
                 eval_set=[(X_test, y_test)],
                 verbose=50,
             )
@@ -115,9 +141,15 @@ class NIDSClassifier:
             f1_macro = f1_score(y_test, y_pred, average="macro")
 
             logger.info("\nClassification Report:")
+            labels = sorted(self.reverse_mapping)
+            target_names = [self.reverse_mapping[label] for label in labels]
             logger.info(
                 classification_report(
-                    y_test, y_pred, target_names=list(self.label_mapping.keys())
+                    y_test,
+                    y_pred,
+                    labels=labels,
+                    target_names=target_names,
+                    zero_division=0,
                 )
             )
 
@@ -131,13 +163,13 @@ class NIDSClassifier:
 
     def predict(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Predict class labels and probabilities.
-        
+
         Args:
             X: Feature matrix
-            
+
         Returns:
             Tuple of (predictions, probabilities)
-            
+
         Raises:
             ModelNotLoadedException: If model is not loaded
             InferenceException: If prediction fails
@@ -156,13 +188,13 @@ class NIDSClassifier:
 
     def predict_single(self, features: np.ndarray) -> Dict[str, Any]:
         """Predict for a single flow.
-        
+
         Args:
             features: Feature array for single flow
-            
+
         Returns:
             Dictionary with prediction results
-            
+
         Raises:
             ModelNotLoadedException: If model is not loaded
             InferenceException: If prediction fails
@@ -171,10 +203,10 @@ class NIDSClassifier:
             raise ModelNotLoadedException("Model not trained or loaded")
 
         try:
-            features = features.reshape(1, -1)
+            features = np.asarray(features).reshape(1, -1)
             validate_features(features)
 
-            y_pred = self.model.predict(features)[0]
+            y_pred = int(self.model.predict(features)[0])
             y_proba = self.model.predict_proba(features)[0]
 
             pred_label = self.reverse_mapping[y_pred]
@@ -193,10 +225,10 @@ class NIDSClassifier:
 
     def save(self, filepath: str):
         """Save model to disk.
-        
+
         Args:
             filepath: Path to save model
-            
+
         Raises:
             ModelLoadException: If save fails
         """
@@ -218,10 +250,10 @@ class NIDSClassifier:
 
     def load(self, filepath: str):
         """Load model from disk.
-        
+
         Args:
             filepath: Path to load model from
-            
+
         Raises:
             ModelLoadException: If load fails
         """
@@ -230,10 +262,16 @@ class NIDSClassifier:
                 raise ModelLoadException(f"Model file not found: {filepath}")
 
             data = joblib.load(filepath)
-            self.model = data["model"]
-            self.label_mapping = data["label_mapping"]
-            self.scale_pos_weight = data.get("scale_pos_weight", 1.0)
-            self.feature_names = data.get("feature_names", FEATURE_COLUMNS)
+            if isinstance(data, dict):
+                self.model = data["model"]
+                self.label_mapping = data.get("label_mapping", get_label_mapping())
+                self.scale_pos_weight = data.get("scale_pos_weight", 1.0)
+                self.feature_names = data.get("feature_names", FEATURE_COLUMNS)
+            else:
+                self.model = data
+                self.label_mapping = get_label_mapping()
+                self.scale_pos_weight = 1.0
+                self.feature_names = FEATURE_COLUMNS
             self.reverse_mapping = {v: k for k, v in self.label_mapping.items()}
             logger.info(f"Model loaded from {filepath}")
         except Exception as e:
@@ -241,20 +279,26 @@ class NIDSClassifier:
             raise ModelLoadException(f"Failed to load model: {str(e)}")
 
 
+
 def train_model(
     data_path: str, output_path: str = "models/nids_model.pkl"
-) -> NIDSClassifier:
+) -> Tuple[NIDSClassifier, Dict[str, Any]]:
     """Train and save the NIDS model."""
     print(f"Loading data from {data_path}")
     df = pd.read_csv(data_path, low_memory=False)
+    df.columns = df.columns.str.strip()
 
     from src.nids.data.loader import engineer_features, map_labels
 
     X = engineer_features(df)
-    y_raw = df["Label"].values if "Label" in df.columns else df["Label"].values
-    y_mapped = np.array([self.label_mapping.get(map_labels(l), 0) for l in y_raw])
-
     classifier = NIDSClassifier()
+    if "Label" not in df.columns:
+        raise InferenceException("Training data must include a Label column")
+
+    y_raw = df["Label"].values
+    y_mapped = np.array(
+        [classifier.label_mapping.get(map_labels(str(label)), 0) for label in y_raw]
+    )
     results = classifier.train(X.values, y_mapped)
 
     classifier.save(output_path)

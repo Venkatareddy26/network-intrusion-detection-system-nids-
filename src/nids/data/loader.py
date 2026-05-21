@@ -1,8 +1,7 @@
-import pandas as pd
-import numpy as np
-from typing import List, Dict, Any, Tuple
-import os
+from typing import Dict
 
+import numpy as np
+import pandas as pd
 
 FEATURE_COLUMNS = [
     "flow_duration",
@@ -60,6 +59,7 @@ def load_cicids2017(filepath: str, sample_size: int = 0) -> pd.DataFrame:
     """Load CICIDS2017 dataset with optional sampling."""
     print(f"Loading dataset from {filepath}...")
     df = pd.read_csv(filepath, low_memory=False)
+    df.columns = df.columns.str.strip()
 
     if sample_size > 0:
         df = df.sample(n=min(sample_size, len(df)), random_state=42)
@@ -70,6 +70,7 @@ def load_cicids2017(filepath: str, sample_size: int = 0) -> pd.DataFrame:
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     """Engineer features from raw network flow data."""
     df = df.copy()
+    df.columns = df.columns.str.strip()
 
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.fillna(0, inplace=True)
@@ -144,9 +145,27 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 
 def map_labels(label: str) -> str:
     """Map raw labels to attack categories."""
-    if label in NORMAL_LABELS:
+    label = str(label).strip()
+    normalized = label.lower()
+
+    if label in NORMAL_LABELS or normalized == "benign":
         return "Normal"
-    return ATTACK_LABELS.get(label, label)
+
+    if normalized.startswith("dos") or normalized in {"ddos", "heartbleed"}:
+        return "DoS"
+    if normalized in {"portscan", "port scan"}:
+        return "Port Scan"
+    if "patator" in normalized or "brute force" in normalized:
+        return "Brute Force"
+    if (
+        normalized.startswith("web attack")
+        or normalized in {"infiltration", "bot"}
+        or "sql injection" in normalized
+        or "xss" in normalized
+    ):
+        return "Data Exfiltration"
+
+    return ATTACK_LABELS.get(label, "Data Exfiltration")
 
 
 def get_label_mapping() -> Dict[str, int]:
